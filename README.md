@@ -172,6 +172,24 @@ camera.capture_and_send(camera.parse_capture_settings(raw))
 
 Host side, use `brilliant_msg`'s `RxPhoto` exactly as you would with hardware.
 
+### How closely it matches the real camera
+
+Matched — this is the SDK / protocol contract your app code depends on:
+
+* **Format**: baseline JPEG, decodable by `RxPhoto` / `Image.memory`.
+* **Geometry**: a **square** image at the resolution your `TxCaptureSettings`
+  asks for, clamped to an even number in **100–720** (the SDK's documented range).
+* **Quality**: the 5-level `VERY_LOW … VERY_HIGH` enum.
+* **Orientation**: the frame is pre-rotated so `RxPhoto`'s default −90° correction
+  produces an upright image, and `read_raw` omits the fixed 623-byte header that
+  `RxPhoto` re-prepends — identical handling to hardware.
+
+Not matched (and not disclosed by Brilliant, so not reproducible without the
+device — none of this affects app logic, only the picture itself): the sensor's
+native resolution, field of view, colour science, and the Halo's
+"AI-optimised imaging" / libmpix pipeline. You get a plain webcam JPEG at the
+requested size.
+
 > **Caveats.** Audio latency is best-effort (this is a dev tool, not a real-time
 > pipeline). LC3 in/out and metering data are not modelled. The webcam frame is
 > a still per `capture()` — there is no continuous video feed.

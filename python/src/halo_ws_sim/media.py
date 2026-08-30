@@ -192,7 +192,10 @@ class CameraBridge:
         if not ok:
             raise RuntimeError("webcam read failed")
 
+        # Match the SDK contract: even resolution, 100..720, square image.
         resolution = int(_opt(args, "resolution", 512)) or 512
+        resolution = max(100, min(720, resolution))
+        resolution -= resolution % 2
         quality = str(_opt(args, "quality", "MEDIUM"))
 
         h, w = frame.shape[:2]
