@@ -52,12 +52,27 @@ Options:
 | `--sandbox ./halo_sandbox` | device "flash" — uploaded Lua files persist here |
 | `--fresh` | wipe the sandbox on startup |
 | `--libs data,plain_text` | preload `brilliant_msg` libs as `<name>.min.lua` |
-| `--headless` | no window (CI / servers) |
+| `--headless` | no pygame window (CI / servers) |
+| `--no-web` | disable the HTTP view (default: on, port = `--port` + 1) |
 | `--window-main-thread` | window on the main thread (needed on macOS) |
 | `-v` / `-vv` | INFO / DEBUG logging |
 
 Window keys: `SPACE` single click · `D` double · `L` long · `T`/`2`/`3` IMU
 single/double/triple tap · `S` save a PNG of the display.
+
+### Web view — http://localhost:8766
+
+A no-dependency HTTP view of the live 256×256 display with buttons to inject
+taps and button presses. Handy on a headless box, for screenshots, or to drive
+events from a script **without** opening a second WebSocket (the device link is
+single-client):
+
+```
+GET http://localhost:8766/                       live view + inject buttons
+GET http://localhost:8766/shot.png               current framebuffer (PNG)
+GET http://localhost:8766/inject?event=tap&arg=double
+GET http://localhost:8766/inject?event=button_single
+```
 
 ### Connecting from the Flutter app
 
