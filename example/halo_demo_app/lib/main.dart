@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -37,6 +39,9 @@ class HaloDemoApp extends StatelessWidget {
 
 /// Device-side msg codes shared with `assets/lua/frame_app.lua`.
 const int kTextMsg = 0x0a;
+const int kCaptureMsg = 0x0d;
+const int kMicMsg = 0x0e;
+const int kSpeakerMsg = 0x0f;
 const int kTapSubsMsg = 0x10;
 
 /// The standard brilliant_msg device libs this demo uploads, plus the app.
@@ -45,6 +50,8 @@ const List<String> kLuaLibs = [
   'plain_text.min.lua',
   'code.min.lua',
   'tap.min.lua',
+  'camera.min.lua',
+  'audio.min.lua',
 ];
 
 enum Phase { idle, connecting, uploading, starting, ready, error }
@@ -63,6 +70,9 @@ class _HomePageState extends State<HomePage> {
   Phase _phase = Phase.idle;
   String? _error;
   int _taps = 0;
+  bool _busy = false; // a photo/mic/beep round-trip is in flight
+  Uint8List? _photo;
+  String? _micResult;
   final List<String> _log = [];
   final TextEditingController _text =
       TextEditingController(text: 'Hello\nHalo!');
@@ -159,6 +169,77 @@ class _HomePageState extends State<HomePage> {
     final t = _text.text;
     _addLog('send text: ${t.replaceAll("\n", "⏎")}');
     await device.sendMessage(kTextMsg, TxPlainText(text: t).pack());
+  }
+
+  Future<void> _guard(String label, Future<void> Function() body) async {
+    if (_device == null || _phase != Phase.ready || _busy) return;
+    setState(() => _busy = true);
+    _addLog('$label…');
+    try {
+      await body();
+    } catch (e) {
+      _addLog('$label failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Camera: request a photo, receive the JPEG via RxPhoto, show it.
+  Future<void> _takePhoto() => _guard('photo', () async {
+        final device = _device!;
+        const q = 'MEDIUM', res = 256;
+        final photo = RxPhoto(quality: q, resolution: res)
+            .attach(device.dataResponse)
+            .first
+            .timeout(const Duration(seconds: 8));
+        await device.sendMessage(
+          kCaptureMsg,
+          TxCaptureSettings(resolution: res, qualityIndex: 2).pack(),
+        );
+        final jpeg = await photo;
+        _addLog('photo: ${jpeg.length} B JPEG');
+        setState(() => _photo = jpeg);
+      });
+
+  /// Microphone: ask the device to record ~2 s and stream it back.
+  Future<void> _record() => _guard('record 2s', () async {
+        final device = _device!;
+        final clip = RxAudio()
+            .attach(device.dataResponse)
+            .first
+            .timeout(const Duration(seconds: 6));
+        await device.sendMessage(kMicMsg, TxCode(value: 1).pack());
+        final pcm = await clip;
+        final rms = _rms16(pcm);
+        _addLog('mic: ${pcm.length} B PCM (${(pcm.length / 2 / 16000).toStringAsFixed(2)} s), rms ${rms.toStringAsFixed(0)}');
+        setState(() => _micResult =
+            '${(pcm.length / 2 / 16000).toStringAsFixed(2)} s · ${pcm.length} B · level ${rms.toStringAsFixed(0)}');
+      });
+
+  /// Speaker: send a short tone for the device to play on the PC speakers.
+  Future<void> _beep() => _guard('beep', () async {
+        final device = _device!;
+        await device.sendMessage(kSpeakerMsg, _sinePcm16(440, 0.3, 16000));
+        _addLog('beep sent (440 Hz, 0.3 s)');
+      });
+
+  static double _rms16(Uint8List pcm) {
+    final s = pcm.buffer.asInt16List();
+    if (s.isEmpty) return 0;
+    var acc = 0.0;
+    for (final v in s) {
+      acc += v * v;
+    }
+    return math.sqrt(acc / s.length);
+  }
+
+  static Uint8List _sinePcm16(double hz, double seconds, int rate) {
+    final n = (seconds * rate).round();
+    final out = Int16List(n);
+    for (var i = 0; i < n; i++) {
+      out[i] = (math.sin(2 * math.pi * hz * i / rate) * 12000).round();
+    }
+    return out.buffer.asUint8List();
   }
 
   Future<void> _disconnect() async {
@@ -258,9 +339,58 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(height: 8),
             Text(
               'Inject taps / button presses from the simulator window '
-              '(keys T / 2 / 3 / SPACE).',
+              '(keys T / 2 / 3 / SPACE) or http://localhost:8766.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: (_phase == Phase.ready && !_busy) ? _takePhoto : null,
+                  icon: const Icon(Icons.photo_camera, size: 18),
+                  label: const Text('Take photo'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: (_phase == Phase.ready && !_busy) ? _record : null,
+                  icon: const Icon(Icons.mic, size: 18),
+                  label: const Text('Record 2s'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: (_phase == Phase.ready && !_busy) ? _beep : null,
+                  icon: const Icon(Icons.volume_up, size: 18),
+                  label: const Text('Beep'),
+                ),
+                if (_busy)
+                  const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: SizedBox(
+                        width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+              ],
+            ),
+            if (_photo != null || _micResult != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_photo != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(_photo!, width: 120, height: 120, fit: BoxFit.cover),
+                    ),
+                  if (_micResult != null)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 12, top: 4),
+                        child: Text('mic clip:\n$_micResult',
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const Divider(height: 32),
             const Text('Log', style: TextStyle(fontWeight: FontWeight.bold)),
             Expanded(
