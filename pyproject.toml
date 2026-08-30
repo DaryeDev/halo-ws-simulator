@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "halo-ws-simulator"
+version = "0.1.0"
+description = "Wireless (WebSocket) simulator of the Brilliant Labs Halo. Lets Flutter apps built with the Halo SDK be developed and debugged without hardware."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "MIT" }
+dependencies = [
+    # The device "brain": upstream emulator = real Lua 5.4 VM + full frame.* API
+    # + 256x256 framebuffer + event model. We depend on it, we do not fork it.
+    "halo-emulator>=2.0.1,<3.0.0",
+    # Stands in for the BLE GATT link.
+    "websockets>=12.0",
+    # Pulled transitively by halo-emulator; pinned here for the desktop window.
+    "pygame>=2.5.0,<3.0.0",
+    "pillow>=11.1.0,<12.0.0",
+]
+
+[project.optional-dependencies]
+# Ship the standard device-side Lua libs (data.min.lua, plain_text.min.lua, ...)
+# so `--libs` can pre-load them. Only needed for brilliant_msg-style apps.
+msg = ["brilliant-msg>=7.0.0"]
+
+[project.scripts]
+halo-ws-sim = "halo_ws_sim.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/halo_ws_sim"]
