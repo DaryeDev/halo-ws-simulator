@@ -184,12 +184,14 @@ class HaloDeviceBridge:
 
             assert isinstance(item, str)
             self._exec_start = time.monotonic()
+            _log.debug("worker: exec start %r", item[:40])
             try:
                 self.emu._lua.execute(item)
+                _log.debug("worker: exec ok")
             except EmulatorRestartException:
                 self._rebuild()
             except EmulatorStopException:
-                pass  # clean break / reboot
+                _log.debug("worker: exec stopped (EmulatorStopException)")
             except BaseException as exc:  # noqa: BLE001 - Lua errors reach stdout
                 text = self._lua_error_text(exc)
                 self._log("warn", f"lua error: {text}")
