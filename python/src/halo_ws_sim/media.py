@@ -51,57 +51,122 @@ def _to_bytes(data: object) -> bytes:
 
 
 class MicBridge:
-    def __init__(self, device: str | int | None) -> None:
+    # Hardware AAD thresholds (dB SPL) the firmware accepts.
+    AAD_STEPS = (60, 65, 70, 75, 80, 85, 90, 95, 97.5)
+
+    def __init__(self, device: str | int | None, spl_offset: float = 94.0) -> None:
         self._device = device
-        self._stream = None
+        # 0 dBFS RMS maps to this dB SPL. A rough consumer-mic calibration;
+        # tune with --aad-spl-offset. Speech at a normal distance lands ~60-70.
+        self._spl_offset = float(spl_offset)
+
+        self._stream = None            # single always-on input stream
+        self._capture_rate = 48000
+        self._carry = None             # np array, resampler tail
+
+        # --- capture (frame.microphone.start / read) ---
         self._on_pcm: Callable[[bytes], None] | None = None
         self._target_rate = 8000
-        self._capture_rate = 48000
 
-    def start(self, target_rate: int, on_pcm: Callable[[bytes], None]) -> None:
-        self.stop()
+        # --- acoustic activity detection (frame.microphone.aad_callback) ---
+        self._aad_fire: Callable[[], None] | None = None   # queue an 'aad' event
+        self._aad_threshold = 90.0
+        self._aad_silent_s = 1.0
+        self._aad_last = 0.0
+
+        # observable state (for the HTTP /mic_level view)
+        self.level_dbspl = -120.0
+        self.active = False
+
+    # ------------------------------------------------------------------ public
+
+    def set_capture(self, target_rate: int, on_pcm: Callable[[bytes], None]) -> None:
+        """frame.microphone.start(): begin delivering PCM to read()."""
+        self._target_rate = int(target_rate)
+        self._on_pcm = on_pcm
+        self._ensure_stream()
+
+    def stop_capture(self) -> None:
+        """frame.microphone.stop()."""
+        self._on_pcm = None
+
+    def set_aad(
+        self,
+        fire: Callable[[], None] | None,
+        threshold: float | None,
+        silent_period_ms: float | None,
+    ) -> None:
+        """frame.microphone.aad_callback(func, threshold, silent_period)."""
+        self._aad_fire = fire
+        want = float(threshold) if threshold else 90.0
+        # snap to the nearest hardware step, as the firmware does
+        self._aad_threshold = min(self.AAD_STEPS, key=lambda s: abs(s - want))
+        self._aad_silent_s = (float(silent_period_ms) if silent_period_ms else 1000.0) / 1000.0
+        if fire is not None:
+            _log.info(
+                "mic AAD armed: threshold %.1f dB SPL, silent period %.0f ms",
+                self._aad_threshold, self._aad_silent_s * 1000,
+            )
+            self._ensure_stream()
+
+    # ------------------------------------------------------------------ stream
+
+    def _ensure_stream(self) -> None:
+        if self._stream is not None:
+            return
         import numpy as np
         import sounddevice as sd
 
-        self._on_pcm = on_pcm
-        self._target_rate = int(target_rate)
         info = sd.query_devices(self._device, "input")
         self._capture_rate = int(info["default_samplerate"] or 48000)
-        ratio = self._target_rate / self._capture_rate
-        carry = np.zeros(0, dtype=np.float32)
-
-        def cb(indata, _frames, _time, status):  # noqa: ANN001
-            nonlocal carry
-            if status:
-                _log.debug("mic status: %s", status)
-            mono = indata.mean(axis=1).astype(np.float32)
-            mono = np.concatenate([carry, mono])
-            n_out = int(len(mono) * ratio)
-            if n_out < 1:
-                carry = mono
-                return
-            xp = np.arange(len(mono))
-            x = np.linspace(0, len(mono) - 1, n_out)
-            out = np.interp(x, xp, mono)
-            consumed = int(n_out / ratio)
-            carry = mono[consumed:]
-            pcm = np.clip(out * 32767, -32768, 32767).astype("<i2").tobytes()
-            if self._on_pcm is not None:
-                self._on_pcm(pcm)
-
+        self._carry = np.zeros(0, dtype=np.float32)
         self._stream = sd.InputStream(
             samplerate=self._capture_rate,
             channels=max(1, min(2, int(info["max_input_channels"]) or 1)),
             dtype="float32",
             device=self._device,
-            callback=cb,
+            callback=self._cb,
             blocksize=0,
         )
         self._stream.start()
-        _log.info(
-            "mic: %s @ %d Hz -> %d Hz mono PCM",
-            info["name"], self._capture_rate, self._target_rate,
-        )
+        _log.info("mic: %s @ %d Hz", info["name"], self._capture_rate)
+
+    def _cb(self, indata, _frames, _time, status):  # noqa: ANN001
+        import time as _t
+
+        import numpy as np
+
+        if status:
+            _log.debug("mic status: %s", status)
+        mono = indata.mean(axis=1).astype(np.float32)
+
+        # --- level + AAD (always) ---
+        if mono.size:
+            rms = float(np.sqrt(np.mean(mono * mono)))
+            self.level_dbspl = 20.0 * np.log10(max(rms, 1e-7)) + self._spl_offset
+            self.active = self.level_dbspl >= self._aad_threshold
+            if (self.active and self._aad_fire is not None
+                    and _t.monotonic() - self._aad_last >= self._aad_silent_s):
+                self._aad_last = _t.monotonic()
+                try:
+                    self._aad_fire()
+                except Exception:  # noqa: BLE001
+                    _log.exception("AAD fire failed")
+
+        # --- capture path (only while frame.microphone is started) ---
+        if self._on_pcm is None:
+            return
+        ratio = self._target_rate / self._capture_rate
+        buf = np.concatenate([self._carry, mono])
+        n_out = int(len(buf) * ratio)
+        if n_out < 1:
+            self._carry = buf
+            return
+        x = np.linspace(0, len(buf) - 1, n_out)
+        out = np.interp(x, np.arange(len(buf)), buf)
+        self._carry = buf[int(n_out / ratio):]
+        pcm = np.clip(out * 32767, -32768, 32767).astype("<i2").tobytes()
+        self._on_pcm(pcm)
 
     def stop(self) -> None:
         if self._stream is not None:
@@ -270,10 +335,12 @@ class MediaConfig:
         mic: str | int | None | bool = False,
         speaker: str | int | None | bool = False,
         camera: int | None | bool = False,
+        aad_spl_offset: float = 94.0,
     ) -> None:
         self.mic = mic
         self.speaker = speaker
         self.camera = camera
+        self.aad_spl_offset = aad_spl_offset
 
     @property
     def any(self) -> bool:
@@ -282,7 +349,10 @@ class MediaConfig:
     def build(self) -> dict[str, object]:
         out: dict[str, object] = {}
         if self.mic is not False:
-            out["mic"] = MicBridge(None if self.mic is True else self.mic)
+            out["mic"] = MicBridge(
+                None if self.mic is True else self.mic,
+                spl_offset=self.aad_spl_offset,
+            )
         if self.speaker is not False:
             out["speaker"] = SpeakerBridge(None if self.speaker is True else self.speaker)
         if self.camera is not False:

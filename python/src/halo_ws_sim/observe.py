@@ -7,6 +7,7 @@ Lets you watch the Halo display and inject events from a browser or a script
     GET /shot.png              current 256x256 framebuffer as PNG
     GET /inject?event=tap&arg=double
     GET /inject?event=button_single
+    GET /mic_level             {dbspl, active, threshold, armed}  (needs --mic)
 """
 from __future__ import annotations
 
@@ -36,9 +37,14 @@ button:hover{background:#444}</style>
 <button onclick="i('tap','triple')">3-tap</button>
 </div>
 <p id=s></p>
+<p id=mic style="font:13px monospace"></p>
 <script>
 function i(e,a){fetch('/inject?event='+e+(a?'&arg='+a:'')).then(r=>r.text()).then(t=>s.textContent=t)}
 setInterval(()=>{fb.src='/shot.png?'+Date.now()},250)
+setInterval(()=>{fetch('/mic_level').then(r=>r.json()).then(m=>{
+  if(!m.available){mic.textContent='';return}
+  mic.textContent='mic '+m.dbspl.toFixed(0)+' dB SPL'+(m.armed?('  AAD@'+m.threshold+(m.active?'  [ACTIVE]':'  [idle]')):'  (AAD not armed)')
+}).catch(()=>{})},200)
 </script>
 """
 
@@ -65,8 +71,25 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, self._framebuffer_png(), "image/png")
         elif parsed.path == "/inject":
             self._send(200, self._inject(parse_qs(parsed.query)), "text/plain")
+        elif parsed.path == "/mic_level":
+            import json as _json
+
+            self._send(200, _json.dumps(self._mic_level()).encode(), "application/json")
         else:
             self._send(404, b"not found", "text/plain")
+
+    def _mic_level(self) -> dict:
+        bridge = self.state.bridge
+        mic = bridge._media.get("mic") if bridge is not None else None
+        if mic is None:
+            return {"available": False}
+        return {
+            "available": True,
+            "dbspl": round(float(getattr(mic, "level_dbspl", -120.0)), 1),
+            "active": bool(getattr(mic, "active", False)),
+            "armed": getattr(mic, "_aad_fire", None) is not None,
+            "threshold": getattr(mic, "_aad_threshold", 90.0),
+        }
 
     def _framebuffer_png(self) -> bytes:
         bridge = self.state.bridge

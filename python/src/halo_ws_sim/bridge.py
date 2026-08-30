@@ -230,19 +230,33 @@ class HaloDeviceBridge:
         if mic is not None:
             mstub = self.emu._microphone
             _orig_start, _orig_stop = mstub.start, mstub.stop
+            _orig_aad = mstub.aad_callback
 
             def start(cfg=None, _s=_orig_start, _stub=mstub, _mic=mic):
                 _s(cfg)  # firmware config validation + sets _streaming
                 try:
-                    _mic.start(int(_opt(cfg, "sample_rate", 8000)), _stub.inject_data)
+                    _mic.set_capture(int(_opt(cfg, "sample_rate", 8000)), _stub.inject_data)
                 except Exception as e:  # noqa: BLE001
                     self._log("warn", f"mic bridge failed: {e}")
 
             def stop(_s=_orig_stop, _mic=mic):
-                _mic.stop()
+                _mic.stop_capture()
                 _s()
 
-            mstub.start, mstub.stop = start, stop
+            def aad_callback(func=None, threshold=90, silent_period=1000,
+                             _o=_orig_aad, _mic=mic):
+                _o(func, threshold, silent_period)  # stores func on the stub
+                try:
+                    fire = None if func is None else self._queue_aad
+                    _mic.set_aad(fire, threshold, silent_period)
+                except Exception as e:  # noqa: BLE001
+                    self._log("warn", f"mic AAD bridge failed: {e}")
+
+            mstub.start, mstub.stop, mstub.aad_callback = start, stop, aad_callback
+
+            # Acoustic activity: dispatch to the Lua callback from the Lua thread,
+            # and let frame.standby() treat it as a wake source ("audio").
+            self._patch_aad_dispatch()
 
         spk = self._media.get("speaker")
         if spk is not None:
@@ -261,6 +275,35 @@ class HaloDeviceBridge:
             sstub.start = sstart
             sstub.play = lambda data: spk.write(_to_bytes(data))
             sstub.stop = spk.stop
+
+    def _queue_aad(self) -> None:
+        """Called from the mic bridge's audio thread on acoustic activity."""
+        self.emu._event_queue.put(Event(type="aad"))
+
+    def _patch_aad_dispatch(self) -> None:
+        """Teach the emulator's event loop about the 'aad' event type:
+        - dispatched to frame.microphone's registered callback (Lua thread), and
+        - recognised by frame.standby() as the "audio" wake source.
+        """
+        system = self.emu._system
+        if getattr(system, "_aad_patched", False):
+            return
+        system._aad_patched = True
+
+        from halo_emulator.stubs import system as _sysmod
+        _sysmod._WAKE_SOURCES.setdefault("aad", "audio")
+
+        _orig = system._dispatch_fn
+
+        def _dispatch(event):
+            if event.type == "aad":
+                cb = getattr(self.emu._microphone, "_aad_cb", None)
+                if cb is not None:
+                    cb()
+                return
+            _orig(event)
+
+        system._dispatch_fn = _dispatch
 
     def _install_camera(self) -> None:
         """frame.camera does not exist in the upstream emulator; add it onto the

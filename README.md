@@ -146,6 +146,7 @@ python -c "import sounddevice; print(sounddevice.query_devices())"
 | Bridge | Halo API | Behaviour |
 |--------|----------|-----------|
 | `--mic` | `frame.microphone.start{sample_rate=8000\|16000}` then `read(n)` | captures the PC mic, resamples to the requested rate, delivers mono 16-bit PCM in `read()`-sized chunks. `aec` / `voice` / `gain` are accepted (no processing). LC3 encoding is not implemented — request `encoder='pcm'`. |
+| `--mic` | `frame.microphone.aad_callback(func, threshold, silent_period)` | **Acoustic activity detection** (a.k.a. VAD — done in hardware on the real Halo). The simulator measures dB SPL from the PC mic continuously and fires `func` when it crosses `threshold` (snapped to the firmware's 60 / 65 / … / 95 / 97.5 dB steps, default 90), honouring `silent_period` ms. Also works as a `frame.standby()` wake source — `frame.wakeup_source()` returns `"audio"`. Calibrate the dBFS→dB SPL mapping with `--aad-spl-offset` (default 94; a quiet room reads ~30, speech ~60–70). Watch the live level at `http://localhost:8766` or `GET /mic_level`. |
 | `--speaker` | `frame.speaker.start{sample_rate=,channels=,bit_depth=}` then `play(pcm)` | plays the PCM you send on the PC's default (or chosen) output device. |
 | `--camera` | `frame.camera.capture{resolution=,quality=,pan=}`, `image_ready()`, `read(n)` / `read_raw(n)` | grabs a webcam frame, centre-crops to square, resizes to `resolution`, rotates so the SDK's `RxPhoto` (which rotates −90°) yields an upright image, JPEG-encodes at the `quality` enum (`VERY_LOW`…`VERY_HIGH`). `read` returns the full JPEG; `read_raw` returns it minus the fixed 623-byte header, which `RxPhoto` re-prepends. `pan`, manual exposure and auto-exposure are accepted as no-ops. |
 
@@ -169,6 +170,17 @@ end
 local camera = require('camera.min')
 camera.capture_and_send(camera.parse_capture_settings(raw))
 ```
+
+```lua
+-- voice activity detection: notify the host, or wake from standby on speech
+frame.microphone.aad_callback(function()
+  frame.bluetooth.send('\x1a')          -- your own msg code
+end, 75, 400)                            -- 75 dB SPL, 400 ms silent period
+```
+
+Host side (Flutter): `send_lua(...)` the snippet above (or bundle it in your
+frame app), then listen on `device.dataResponse` for your code. The
+`example/halo_demo_app` "Listen for voice" chip does exactly this.
 
 Host side, use `brilliant_msg`'s `RxPhoto` exactly as you would with hardware.
 

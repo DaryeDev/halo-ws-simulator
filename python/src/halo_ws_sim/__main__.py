@@ -61,6 +61,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     media.add_argument(
         "--camera", nargs="?", const=True, default=False, metavar="INDEX",
         help="serve frame.camera photos from a PC webcam (default index 0)")
+    media.add_argument(
+        "--aad-spl-offset", type=float, default=94.0, metavar="DB",
+        help="mic dBFS->dB SPL calibration for acoustic activity detection "
+             "(default 94; lower it if AAD never triggers, raise it if it always does)")
 
     p.add_argument("-v", "--verbose", action="count", default=0)
     return p.parse_args(argv)
@@ -106,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             mic=_dev(args.mic),
             speaker=_dev(args.speaker),
             camera=_dev(args.camera),
+            aad_spl_offset=args.aad_spl_offset,
         )
 
     state = SimState()

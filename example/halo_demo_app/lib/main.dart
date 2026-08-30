@@ -43,6 +43,7 @@ const int kCaptureMsg = 0x0d;
 const int kMicMsg = 0x0e;
 const int kSpeakerMsg = 0x0f;
 const int kTapSubsMsg = 0x10;
+const int kVadMsg = 0x1a;
 
 /// The standard brilliant_msg device libs this demo uploads, plus the app.
 const List<String> kLuaLibs = [
@@ -73,6 +74,13 @@ class _HomePageState extends State<HomePage> {
   bool _busy = false; // a photo/mic/beep round-trip is in flight
   Uint8List? _photo;
   String? _micResult;
+
+  // acoustic activity detection (frame.microphone.aad_callback)
+  bool _vadOn = false;
+  int _vadHits = 0;
+  bool _voiceNow = false;
+  StreamSubscription<List<int>>? _vadSub;
+  Timer? _voiceTimer;
   final List<String> _log = [];
   final TextEditingController _text =
       TextEditingController(text: 'Hello\nHalo!');
@@ -223,6 +231,36 @@ class _HomePageState extends State<HomePage> {
         _addLog('beep sent (440 Hz, 0.3 s)');
       });
 
+  /// Voice activity: arm frame.microphone.aad_callback device-side; light an
+  /// indicator each time acoustic activity is reported back.
+  Future<void> _toggleVad() async {
+    final device = _device;
+    if (device == null || _phase != Phase.ready) return;
+    final on = !_vadOn;
+    setState(() {
+      _vadOn = on;
+      if (!on) _voiceNow = false;
+    });
+    _addLog(on ? 'listening for voice…' : 'voice detection off');
+    await device.sendMessage(kVadMsg, TxCode(value: on ? 1 : 0).pack());
+    if (on) {
+      _vadSub = device.dataResponse
+          .where((d) => d.isNotEmpty && d[0] == kVadMsg)
+          .listen((_) {
+        _voiceTimer?.cancel();
+        setState(() {
+          _vadHits++;
+          _voiceNow = true;
+        });
+        _voiceTimer = Timer(const Duration(milliseconds: 600),
+            () => mounted ? setState(() => _voiceNow = false) : null);
+      });
+    } else {
+      await _vadSub?.cancel();
+      _vadSub = null;
+    }
+  }
+
   static double _rms16(Uint8List pcm) {
     final s = pcm.buffer.asInt16List();
     if (s.isEmpty) return 0;
@@ -245,6 +283,13 @@ class _HomePageState extends State<HomePage> {
   Future<void> _disconnect() async {
     await _tapSub?.cancel();
     await _connSub?.cancel();
+    await _vadSub?.cancel();
+    _voiceTimer?.cancel();
+    _vadSub = null;
+    setState(() {
+      _vadOn = false;
+      _voiceNow = false;
+    });
     _tapSub = null;
     _connSub = null;
     try {
@@ -263,6 +308,8 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _tapSub?.cancel();
     _connSub?.cancel();
+    _vadSub?.cancel();
+    _voiceTimer?.cancel();
     _device?.disconnect();
     _text.dispose();
     super.dispose();
@@ -361,6 +408,17 @@ class _HomePageState extends State<HomePage> {
                   onPressed: (_phase == Phase.ready && !_busy) ? _beep : null,
                   icon: const Icon(Icons.volume_up, size: 18),
                   label: const Text('Beep'),
+                ),
+                FilterChip(
+                  avatar: Icon(
+                    _voiceNow ? Icons.graphic_eq : Icons.hearing,
+                    size: 18,
+                    color: _voiceNow ? Colors.green : null,
+                  ),
+                  label: Text(_vadOn ? 'voice: $_vadHits' : 'Listen for voice'),
+                  selected: _vadOn,
+                  onSelected:
+                      _phase == Phase.ready ? (_) => _toggleVad() : null,
                 ),
                 if (_busy)
                   const Padding(

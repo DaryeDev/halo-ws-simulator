@@ -15,6 +15,7 @@ local TAP_SUBS_MSG = 0x10   -- phone -> frame : TxCode 1/0 subscribe to taps
 local CAPTURE_MSG  = 0x0d   -- phone -> frame : TxCaptureSettings, take a photo
 local MIC_MSG      = 0x0e   -- phone -> frame : TxCode, record ~2s and stream it
 local SPEAKER_MSG  = 0x0f   -- phone -> frame : raw PCM to play
+local VAD_MSG      = 0x1a   -- phone <-> frame : TxCode 1/0 arm AAD; sent back on activity
 
 local function show_text(t)
     frame.display.clear(0)
@@ -70,6 +71,15 @@ while true do
 
             elseif flag == SPEAKER_MSG then
                 frame.speaker.play(raw)
+
+            elseif flag == VAD_MSG then
+                -- acoustic activity detection (done in HW on real Halo)
+                local m = code.parse_code(raw)
+                frame.microphone.aad_callback(
+                    m.value == 1
+                        and function() frame.bluetooth.send(string.char(VAD_MSG)) end
+                        or nil,
+                    75, 400)
             end
         end
         frame.sleep(0.02)
