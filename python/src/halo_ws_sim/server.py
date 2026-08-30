@@ -16,13 +16,17 @@ def _reachable_urls(port: int) -> list[str]:
         f"ws://10.0.2.2:{port}             (Android emulator)",
         f"ws://127.0.0.1:{port}            (USB device after: adb reverse tcp:{port} tcp:{port})",
     ]
+    # Common virtual-adapter subnets (VirtualBox / VMware / WSL / Hyper-V / Docker)
+    # that are never the Wi-Fi the phone is on.
+    _VIRTUAL_PREFIXES = ("192.168.56.", "192.168.99.", "192.168.200.", "172.1", "172.2",
+                         "172.3", "169.254.")
     seen = set()
     lan = []
     for fam, *_rest, sockaddr in _iter_addrinfo():
         ip = sockaddr[0]
-        if fam == socket.AF_INET and not ip.startswith("127.") and ip not in seen:
+        if (fam == socket.AF_INET and not ip.startswith("127.")
+                and not ip.startswith(_VIRTUAL_PREFIXES) and ip not in seen):
             seen.add(ip)
-            # prefer common home/office LAN ranges; keep the rest as extras
             lan.append(ip)
     lan.sort(key=lambda ip: (not ip.startswith(("192.168.", "10.")), ip))
     for ip in lan[:3]:
