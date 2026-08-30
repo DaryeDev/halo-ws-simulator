@@ -79,7 +79,7 @@ while true do
                     m.value == 1
                         and function() frame.bluetooth.send(string.char(VAD_MSG)) end
                         or nil,
-                    75, 400)
+                    65, 400)   -- 65 dB SPL ~ raised voice near the mic
             end
         end
         frame.sleep(0.02)
