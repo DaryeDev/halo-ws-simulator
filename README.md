@@ -24,7 +24,7 @@ and optional bridges from the PC's real microphone / speaker / webcam.
 
 | Path | What it is |
 |------|------------|
-| [`python/`](python/) | the simulator — `halo-ws-sim` CLI (`pip install halo-ws-simulator`) |
+| [`python/`](python/) | the simulator — the `halo-ws-sim` CLI (`pip install halo-ws-simulator`) |
 | [`flutter/brilliant_ble_ws/`](flutter/brilliant_ble_ws/) | a WebSocket-transport build of `brilliant_ble`, same public API, consumed via a git dependency override |
 | [`example/halo_demo_app/`](example/halo_demo_app/) | a full demo app (text to display + tap counter) |
 | [`template/halo_app_starter/`](template/halo_app_starter/) | a minimal starter you copy to begin your own app |
@@ -38,9 +38,14 @@ and optional bridges from the PC's real microphone / speaker / webcam.
 Python 3.10–3.13.
 
 ```bash
-pip install halo-ws-simulator          # or: pipx install halo-ws-simulator
-#   from a clone:  pip install -e "python/[msg]"
+pip install halo-ws-simulator          # extras: [msg] [media] [all]
 halo-ws-sim
+```
+
+Not published yet? Install straight from this repo instead:
+
+```bash
+pip install "halo-ws-simulator[all] @ git+https://github.com/DaryeDev/halo-ws-simulator.git#subdirectory=python"
 ```
 
 On startup it prints every URL a client can use. It opens a pygame window and a
@@ -120,7 +125,7 @@ the SDK's `RxPhoto` / audio helpers work unchanged.
 
 ```bash
 pip install "halo-ws-simulator[media]"      # sounddevice + opencv + numpy
-#   from a clone:  pip install -e "python/[media]"   (or [all] for msg + media)
+#   not on PyPI yet:  pip install "halo-ws-simulator[media] @ git+https://github.com/DaryeDev/halo-ws-simulator.git#subdirectory=python"
 ```
 
 On Linux, `sounddevice` needs PortAudio: `sudo apt install libportaudio2`.

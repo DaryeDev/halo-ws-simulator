@@ -5,11 +5,22 @@ build-backend = "hatchling.build"
 [project]
 name = "halo-ws-simulator"
 version = "0.1.0"
-description = "Wireless (WebSocket) simulator of the Brilliant Labs Halo. Lets Flutter apps built with the Halo SDK be developed and debugged without hardware."
+description = "Wireless (WebSocket) simulator of the Brilliant Labs Halo - develop Flutter apps for the glasses with no hardware."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["brilliant-labs", "halo", "smart-glasses", "flutter", "simulator", "emulator", "websocket"]
+authors = [{ name = "DaryeDev" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Emulators",
+]
 dependencies = [
     # The device "brain": upstream emulator = real Lua 5.4 VM + full frame.* API
     # + 256x256 framebuffer + event model. We depend on it, we do not fork it.
@@ -32,10 +43,16 @@ media = [
     "opencv-python-headless>=4.8",
     "numpy>=1.24",
 ]
-all = ["halo-ws-simulator[msg,media]"]
+all = [
+    "brilliant-msg>=7.0.0",
+    "sounddevice>=0.4.6",
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+]
 
 [project.urls]
 Homepage = "https://github.com/DaryeDev/halo-ws-simulator"
+Repository = "https://github.com/DaryeDev/halo-ws-simulator"
 Issues = "https://github.com/DaryeDev/halo-ws-simulator/issues"
 
 [project.scripts]
@@ -43,3 +60,6 @@ halo-ws-sim = "halo_ws_sim.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/halo_ws_sim"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/README.md", "/LICENSE"]
