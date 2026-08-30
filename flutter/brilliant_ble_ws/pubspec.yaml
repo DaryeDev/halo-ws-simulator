@@ -1,0 +1,23 @@
+name: brilliant_ble
+description: >
+  WebSocket-transport drop-in for brilliant_ble. Same public API
+  (BrilliantBluetooth / BrilliantDevice / ...), but talks to the Halo WS
+  simulator instead of Bluetooth LE. Select it via dependency_overrides — no
+  application code changes.
+version: 5.1.0
+repository: https://github.com/DaryeDev/halo-ws-simulator
+
+environment:
+  sdk: '>=3.4.4 <4.0.0'
+  flutter: '>=1.17.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  web_socket_channel: ^3.0.0
+  logging: ^1.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0

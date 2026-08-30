@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -6,6 +7,28 @@ dist/
 .venv/
 venv/
 .pytest_cache/
+.mypy_cache/
+
+# simulator runtime
 halo_sandbox/
 *.png
-!docs/*.png
+!**/mipmap-*/*.png
+!docs/**/*.png
+
+# Flutter / Dart (packages + example + template)
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+**/pubspec.lock
+**/build/
+**/.gradle/
+**/android/local.properties
+**/android/.kotlin/
+**/android/app/.cxx/
+**/*.iml
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store

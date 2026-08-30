@@ -48,8 +48,29 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="run the window on the main thread and the server on a thread (macOS)",
     )
+
+    media = p.add_argument_group(
+        "media bridges", 'route the PC\'s real devices into frame.microphone / '
+        'frame.speaker / frame.camera. Needs: pip install "halo-ws-simulator[media]"')
+    media.add_argument(
+        "--mic", nargs="?", const=True, default=False, metavar="DEVICE",
+        help="feed the PC mic into frame.microphone (optional device name or index)")
+    media.add_argument(
+        "--speaker", nargs="?", const=True, default=False, metavar="DEVICE",
+        help="play frame.speaker output on the PC (optional device name or index)")
+    media.add_argument(
+        "--camera", nargs="?", const=True, default=False, metavar="INDEX",
+        help="serve frame.camera photos from a PC webcam (default index 0)")
+
     p.add_argument("-v", "--verbose", action="count", default=0)
     return p.parse_args(argv)
+
+
+def _dev(value):
+    """--mic/--speaker/--camera value: keep True, coerce digit strings to int."""
+    if isinstance(value, str) and value.lstrip("-").isdigit():
+        return int(value)
+    return value
 
 
 def _setup_logging(verbose: int) -> None:
@@ -71,6 +92,22 @@ def main(argv: list[str] | None = None) -> int:
     sandbox.mkdir(parents=True, exist_ok=True)
 
     libs = [x.strip() for x in args.libs.split(",") if x.strip()]
+
+    media_config = None
+    if args.mic is not False or args.speaker is not False or args.camera is not False:
+        try:
+            from halo_ws_sim.media import MediaConfig
+        except Exception as e:  # noqa: BLE001
+            raise SystemExit(
+                f'--mic/--speaker/--camera need the media extra: '
+                f'pip install "halo-ws-simulator[media]"  ({e})'
+            )
+        media_config = MediaConfig(
+            mic=_dev(args.mic),
+            speaker=_dev(args.speaker),
+            camera=_dev(args.camera),
+        )
+
     state = SimState()
     server = HaloWsServer(
         state,
@@ -78,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         port=args.port,
         sandbox_dir=sandbox,
         preload_libs=libs,
+        media_config=media_config,
     )
 
     if not args.no_web:

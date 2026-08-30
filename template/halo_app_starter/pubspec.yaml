@@ -1,0 +1,31 @@
+name: halo_app_starter
+description: "Minimal starting point for a Brilliant Labs Halo app. Runs against real glasses or the WebSocket simulator."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.4 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  brilliant_sdk: ^2.0.0
+
+# ------------------------- SIMULATOR SWITCH -------------------------
+# Present  -> Halo WS simulator on your PC.
+# Removed  -> real Halo glasses over Bluetooth LE.
+dependency_overrides:
+  brilliant_ble:
+    git:
+      url: https://github.com/DaryeDev/halo-ws-simulator.git
+      path: flutter/brilliant_ble_ws
+      ref: main
+# ------------------------------------------------------------------
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

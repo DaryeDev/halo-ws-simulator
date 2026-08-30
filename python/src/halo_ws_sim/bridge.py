@@ -57,6 +57,7 @@ class HaloDeviceBridge:
         on_rx: Callable[[bytes], None],
         on_log: Callable[[str, str], None] | None = None,
         preload_libs: list[str] | None = None,
+        media: "dict[str, object] | None" = None,
     ) -> None:
         """
         Parameters
@@ -79,9 +80,12 @@ class HaloDeviceBridge:
         self._on_rx = on_rx
         self._on_log = on_log or (lambda level, msg: None)
 
+        self._media = media or {}
+
         self.emu = HaloEmulator(sandbox_dir=self._sandbox, print_handler=self._on_print)
         # Persists across connect()/rebuild - same stub instance is reused.
         self.emu._bluetooth.add_send_listener(self._on_lua_send)
+        self._wrap_media_stubs()  # mic / speaker stub objects survive rebuilds
 
         if preload_libs:
             self._preload_libs(preload_libs)
@@ -91,6 +95,7 @@ class HaloDeviceBridge:
         self._alive = True
 
         self.emu.connect()  # build the initial Lua runtime
+        self._install_camera()  # frame.camera lives on the (rebuilt) frame table
         self._worker = threading.Thread(
             target=self._run, name="halo-lua-worker", daemon=True
         )
@@ -169,6 +174,12 @@ class HaloDeviceBridge:
             self.emu.stop()
         except Exception:  # noqa: BLE001
             pass
+        for m in self._media.values():
+            for meth in ("stop", "close"):
+                try:
+                    getattr(m, meth)()
+                except Exception:  # noqa: BLE001
+                    pass
         self._worker.join(timeout=2.0)
 
     # ------------------------------------------------------------------ worker thread
@@ -204,7 +215,71 @@ class HaloDeviceBridge:
         """Fresh Lua VM (like a reboot). Sandbox / uploaded files are kept."""
         self.emu._stop_event.clear()
         self.emu.connect()
+        self._install_camera()
         self._log("info", "lua runtime rebuilt")
+
+    # ------------------------------------------------------------------ media (PC mic / speaker / camera)
+
+    def _wrap_media_stubs(self) -> None:
+        """Route frame.microphone / frame.speaker through the PC devices. The
+        stub objects are created once by HaloEmulator and reused across VM
+        rebuilds, so wrapping them here (once) is enough."""
+        from halo_ws_sim.media import _opt, _to_bytes
+
+        mic = self._media.get("mic")
+        if mic is not None:
+            mstub = self.emu._microphone
+            _orig_start, _orig_stop = mstub.start, mstub.stop
+
+            def start(cfg=None, _s=_orig_start, _stub=mstub, _mic=mic):
+                _s(cfg)  # firmware config validation + sets _streaming
+                try:
+                    _mic.start(int(_opt(cfg, "sample_rate", 8000)), _stub.inject_data)
+                except Exception as e:  # noqa: BLE001
+                    self._log("warn", f"mic bridge failed: {e}")
+
+            def stop(_s=_orig_stop, _mic=mic):
+                _mic.stop()
+                _s()
+
+            mstub.start, mstub.stop = start, stop
+
+        spk = self._media.get("speaker")
+        if spk is not None:
+            sstub = self.emu._speaker
+
+            def sstart(cfg=None):
+                try:
+                    spk.start(
+                        int(_opt(cfg, "sample_rate", 8000)),
+                        int(_opt(cfg, "channels", 1)),
+                        int(_opt(cfg, "bit_depth", 16)),
+                    )
+                except Exception as e:  # noqa: BLE001
+                    self._log("warn", f"speaker bridge failed: {e}")
+
+            sstub.start = sstart
+            sstub.play = lambda data: spk.write(_to_bytes(data))
+            sstub.stop = spk.stop
+
+    def _install_camera(self) -> None:
+        """frame.camera does not exist in the upstream emulator; add it onto the
+        freshly-built frame table so `camera.lua` works."""
+        cam = self._media.get("camera")
+        if cam is None or self.emu._lua is None:
+            return
+        lua = self.emu._lua
+        t = lua.table()
+        t.power_save = cam.power_save
+        t.capture = cam.capture
+        t.image_ready = cam.image_ready
+        t.read = cam.read
+        t.read_raw = cam.read_raw
+        t.set_shutter = cam.set_shutter
+        t.set_gain = cam.set_gain
+        t.set_white_balance = cam.set_white_balance
+        t.auto = cam.auto
+        lua.globals().frame.camera = t
 
     def _interrupt(self) -> None:
         """Stop a running main loop, if one has been executing long enough."""

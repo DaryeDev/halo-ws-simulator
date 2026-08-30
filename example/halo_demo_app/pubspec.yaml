@@ -1,0 +1,43 @@
+name: halo_demo_app
+description: "Demo Halo app. Identical code runs against real glasses or the WebSocket simulator - the only difference is one dependency block."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.4 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  logging: ^1.3.0
+
+  # Meta-package: re-exports brilliant_ble (transport) + brilliant_msg (messages).
+  brilliant_sdk: ^2.0.0
+
+# ----------------------- SIMULATOR SWITCH -----------------------
+# This block is the ONLY thing that changes between hardware and simulator.
+#   present (as below) -> Halo WS simulator on your PC
+#   removed / commented -> real Halo glasses over Bluetooth LE
+#
+# Inside this repo the example points at the sibling package by path. Your own
+# app (outside the repo) uses the git form instead:
+#   brilliant_ble:
+#     git:
+#       url: https://github.com/DaryeDev/halo-ws-simulator.git
+#       path: flutter/brilliant_ble_ws
+#       ref: main
+dependency_overrides:
+  brilliant_ble:
+    path: ../../flutter/brilliant_ble_ws
+# --------------------------------------------------------------
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/lua/

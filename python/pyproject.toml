@@ -9,6 +9,7 @@ description = "Wireless (WebSocket) simulator of the Brilliant Labs Halo. Lets F
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = { text = "MIT" }
+keywords = ["brilliant-labs", "halo", "smart-glasses", "flutter", "simulator", "emulator", "websocket"]
 dependencies = [
     # The device "brain": upstream emulator = real Lua 5.4 VM + full frame.* API
     # + 256x256 framebuffer + event model. We depend on it, we do not fork it.
@@ -24,6 +25,18 @@ dependencies = [
 # Ship the standard device-side Lua libs (data.min.lua, plain_text.min.lua, ...)
 # so `--libs` can pre-load them. Only needed for brilliant_msg-style apps.
 msg = ["brilliant-msg>=7.0.0"]
+# Bridge the PC's real microphone / speakers / webcam into frame.microphone /
+# frame.speaker / frame.camera. Enable per device with --mic / --speaker / --camera.
+media = [
+    "sounddevice>=0.4.6",
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+]
+all = ["halo-ws-simulator[msg,media]"]
+
+[project.urls]
+Homepage = "https://github.com/DaryeDev/halo-ws-simulator"
+Issues = "https://github.com/DaryeDev/halo-ws-simulator/issues"
 
 [project.scripts]
 halo-ws-sim = "halo_ws_sim.__main__:main"
