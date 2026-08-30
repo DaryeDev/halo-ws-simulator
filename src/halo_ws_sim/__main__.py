@@ -39,6 +39,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--headless", action="store_true", help="no desktop window")
     p.add_argument(
+        "--no-web",
+        action="store_true",
+        help="disable the HTTP observability view (default: on, port = --port + 1)",
+    )
+    p.add_argument(
         "--window-main-thread",
         action="store_true",
         help="run the window on the main thread and the server on a thread (macOS)",
@@ -74,6 +79,11 @@ def main(argv: list[str] | None = None) -> int:
         sandbox_dir=sandbox,
         preload_libs=libs,
     )
+
+    if not args.no_web:
+        from halo_ws_sim.observe import start_observe_server
+
+        start_observe_server(state, args.port + 1)
 
     stop_flag = threading.Event()
 
